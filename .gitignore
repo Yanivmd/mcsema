@@ -36,3 +36,10 @@ boost/tools/build/CMake/install_me/BoostConfigVersionAgnostic.cmake
 ./deb-build
 ./mc-sema/validator/valTool/obj-ia32
 # Clang, which is tracked independently.
+mc-sema/tests/demo_driver1.ilk
+mc-sema/tests/demo_driver1.pdb
+mc-sema/tests/logMain1.id0
+mc-sema/tests/logMain1.id1
+mc-sema/tests/logMain1.idb
+mc-sema/tests/logMain1.nam
+mc-sema/tests/logMain1.til

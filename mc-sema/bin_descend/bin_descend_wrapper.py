@@ -46,13 +46,14 @@ def do_func_map(arg):
 
 if __name__ == "__main__":
 
-    new_args = ['--batch']
-
+    #new_args = ['--batch']
+    new_args = []
 
     argproc_map = { lambda x: x.startswith('-entry-symbol=') : do_entry_symbol,
                     lambda x: x.startswith('-func-map=') : do_func_map,
                     lambda x: x == '-help': lambda  y: ['--help'],
                     lambda x: x == '-d': lambda y: ['--debug'],
+					lambda x: x == '-b': lambda y: ['--batch'],
                   }
 
     input_file = None
@@ -85,7 +86,9 @@ if __name__ == "__main__":
         sys.stderr.write("An input file is required. Specify via -i\n")
         sys.exit(-2)
 
-    output_file = input_file[:-3] + "cfg"
+			
+    #output_file = input_file[:-3] + "cfg"
+    output_file = os.path.splitext(input_file)[0] + ".cfg"
 
     new_args.extend(['--output', output_file])
 
@@ -94,7 +97,10 @@ if __name__ == "__main__":
 
     argstr = " ".join(internal_args)
 
-    external_args = [IDA_EXE, "-B", "-S"+argstr, input_file]
+    if '--batch' in internal_args:
+	    external_args = [IDA_EXE, "-B", "-S"+argstr, input_file]
+    else:
+	    external_args = [IDA_EXE, "-S"+argstr, input_file] 
 
     sys.stdout.write("Executing: {0}\n".format(str(external_args)))
     subprocess.call(external_args)

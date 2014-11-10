@@ -99,6 +99,10 @@ EntrySymbol("entry-symbol",
 cl::opt<string>
 TargetTriple("mtriple", cl::desc("Target Triple"), cl::value_desc("target triple"), cl::init(DEFAULT_TRIPLE));
 
+cl::opt<bool>
+LoadExternals("l",
+			  cl::desc("Dont Load Externals"),
+			  cl::init(false));  // We'll work with the negated value
 
 NativeModulePtr makeNativeModule( ExecutableContainer *exc, 
                                   ExternalFunctionMap &funcs) 
@@ -194,9 +198,9 @@ NativeModulePtr makeNativeModule( ExecutableContainer *exc,
   {
     list<NativeFunctionPtr> tmp;
     if(DebugMode) {
-      tmp = getFuncs(exc, byteDec, visited, *it, funcs, llvm::dbgs());
+      tmp = getFuncs(exc, byteDec, visited, *it, funcs, llvm::dbgs(), !LoadExternals);
     } else {
-      tmp = getFuncs(exc, byteDec, visited, *it, funcs, nulls());
+      tmp = getFuncs(exc, byteDec, visited, *it, funcs, nulls(), !LoadExternals);
     }
 
     recoveredFuncs.insert(recoveredFuncs.end(), tmp.begin(), tmp.end());

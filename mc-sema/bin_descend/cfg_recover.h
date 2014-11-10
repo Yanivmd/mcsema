@@ -40,7 +40,8 @@ std::list<NativeFunctionPtr> getFuncs(ExecutableContainer *,
         std::set<VA> &, 
         boost::uint64_t, 
         ExternalFunctionMap &, 
-        llvm::raw_ostream &);
+        llvm::raw_ostream &,
+		bool);
 
 DataSection processDataSection( ExecutableContainer *c,
                                 const ExecutableContainer::SectionDesc &sec,

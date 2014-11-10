@@ -685,12 +685,13 @@ bool dataInCodeHeuristic(
 }
 
 NativeBlockPtr decodeBlock( ExecutableContainer *c, 
-                            ExternalFunctionMap &f,
+                            ExternalFunctionMap &f, // TODO: Amit - this should be triggered on and off in some way
                             LLVMByteDecoder     &d,
                             stack<VA>           &blockChildren,
                             VA                  e,
                             stack<VA>           &funcs,
-                            raw_ostream         &out)
+                            raw_ostream         &out,
+							bool                load_external)
 {
   NativeBlockPtr  B = NativeBlockPtr(new NativeBlock(e, d.getPrinter()));
   VA              curAddr = e;
@@ -743,6 +744,16 @@ do
 
         //get the offset for this address
         //add it as a data offset to the instruction
+
+
+        // Amit: set default ext_call_target in case we're not loading externals:
+        ExternalCodeRef::ReturnType rty = ExternalCodeRef::Unknown;
+        ExternalCodeRef::CallingConvention conv = ExternalCodeRef::CallingConvention::FastCall;
+        ExternalCodeRef *t = new ExternalCodeRef("__sub_external__", 0, conv, rty);
+        ExternalCodeRefPtr code_p(t);
+
+        I->set_ext_call_target(code_p);
+
         if (c->find_import_name(addrInInst, has_imp) )  {
 
             if(f.is_data(has_imp)) 
@@ -753,15 +764,19 @@ do
             }
             else
             {
-                ExternalCodeRefPtr code_p = makeExtCodeRefFromString(has_imp, f);
-                LASSERT(code_p, "Failed to get ext call from map for symbol: "+has_imp);
-                //maybe, this call doesn't return, in which case, 
-                //we should kill the decoding of this flow
-                if(code_p->getReturnType() == ExternalCodeRef::NoReturn) {
-                    has_follow = false;
+            	if (load_external) {
+					ExternalCodeRefPtr code_p = makeExtCodeRefFromString(has_imp, f);
+					LASSERT(code_p, "Failed to get ext call from map for symbol: "+has_imp);
+					//maybe, this call doesn't return, in which case,
+					//we should kill the decoding of this flow
+					if(code_p->getReturnType() == ExternalCodeRef::NoReturn) {
+						has_follow = false;
+					}
+					out << "Adding external code ref: " << has_imp << "\n";
+					I->set_ext_call_target(code_p);
+            	} else {
+                    continue;
                 }
-                out << "Adding external code ref: " << has_imp << "\n";
-                I->set_ext_call_target(code_p);
             }
                     
         } else if(c->relocate_addr(addrInInst, addr)) {
@@ -782,6 +797,12 @@ do
             else if( can_ref_code && is_reloc_code ) {
                 list<VA> new_funcs;
                 if(dataInCodeHeuristic(c, I, addr, new_funcs)) {
+
+                    /* TODO: AMIT */
+                    /* An inside call here by LLVM recognizes the external function (printf / fopen / whatever) */
+                    /* We should look at some return value HERE in order to stop the process of adding this function */
+                    /* So the CFG file will be "holeless" */
+
                     // add new functions to our functions list
                     for(list<VA>::const_iterator nfi = new_funcs.begin();
                             nfi != new_funcs.end();
@@ -828,12 +849,12 @@ do
           {
             string  thunkSym;
             bool r = c->find_import_name(curAddr+2, thunkSym);
-            if(r) {
-                // this goes to an external API call
-                out << "Adding external code ref via JMP: " << thunkSym << "\n";
-                ExternalCodeRefPtr p = makeExtCodeRefFromString(thunkSym, f);
-                I->set_ext_call_target(p);
-                has_follow = false;
+            if (r && load_external) {
+                    // this goes to an external API call
+                    out << "Adding external code ref via JMP: " << thunkSym << "\n";
+                    ExternalCodeRefPtr p = makeExtCodeRefFromString(thunkSym, f);
+                    I->set_ext_call_target(p);
+                    has_follow = false;                
             } else {
                 // this is an internal jmp. probably a jump table.
                 out << "Found a possible jump table!\n";
@@ -850,6 +871,7 @@ do
 
           //check to see if this is an external call...
         if(I->has_ext_call_target()) {
+            // TODO Amit: PROBLEM #1.            
             out << "External call to: " << I->get_ext_call_target()->getSymbolName() << "\n";
             break;
         }
@@ -863,11 +885,15 @@ do
             string  thunkSym;
             bool r = c->find_import_name(callTgt+2, thunkSym);
             LASSERT(r, "Need to find thunk import addr");
-            ExternalCodeRefPtr p = makeExtCodeRefFromString(thunkSym, f);
-            I->set_ext_call_target(p);
-            foldFunc = true;
-            if(p->getReturnType() == ExternalCodeRef::NoReturn) {
-              has_follow = false;
+            if (load_external) {
+                ExternalCodeRefPtr p = makeExtCodeRefFromString(thunkSym, f);
+                I->set_ext_call_target(p);
+                foldFunc = true;
+                if(p->getReturnType() == ExternalCodeRef::NoReturn) {
+                  has_follow = false;
+                }
+            } else {
+                continue;
             }
           }
           if(foldFunc == false) {
@@ -902,7 +928,9 @@ do
           if(p->getReturnType() == ExternalCodeRef::NoReturn) {
             has_follow = false;
           }
-          I->set_ext_call_target(p);
+          if (load_external) {
+            I->set_ext_call_target(p);
+          }
         } else {
           out << "Cannot find symbol at address ";
           out << to_string<VA>(curAddr, hex) << "\n";
@@ -925,7 +953,8 @@ NativeFunctionPtr getFunc(ExecutableContainer *c,
                           stack<VA>           &funcs,
                           ExternalFunctionMap &f,
                           VA                  e,
-                          raw_ostream         &out) 
+                          raw_ostream         &out,
+						  bool				  load_external)
 {
   NativeFunctionPtr F = NativeFunctionPtr(new NativeFunction(e));
   stack<VA>         toVisit;
@@ -954,7 +983,8 @@ NativeFunctionPtr getFunc(ExecutableContainer *c,
                                     toVisit, 
                                     curBlockHeader, 
                                     funcs,
-                                    out);
+                                    out,
+									load_external);
 
     F->add_block(B);
   }
@@ -1001,7 +1031,8 @@ list<NativeFunctionPtr> getFuncs( ExecutableContainer *c,
                                   set<VA>             &visited,
                                   VA                  e,
                                   ExternalFunctionMap &funcMap,
-                                  raw_ostream         &out) 
+                                  raw_ostream         &out,
+								  bool				  load_external)
 {
   list<NativeFunctionPtr> funcs;
   stack<VA>               toVisit;
@@ -1022,7 +1053,7 @@ list<NativeFunctionPtr> getFuncs( ExecutableContainer *c,
 
     out << "Calling getFunc on: " << to_string<VA>(curFuncEntry, hex) << "\n";
 
-    NativeFunctionPtr thisFunc = getFunc(c, dec, toVisit, funcMap, curFuncEntry, out);
+    NativeFunctionPtr thisFunc = getFunc(c, dec, toVisit, funcMap, curFuncEntry, out, load_external);
     funcs.push_back(thisFunc);
   }
 
